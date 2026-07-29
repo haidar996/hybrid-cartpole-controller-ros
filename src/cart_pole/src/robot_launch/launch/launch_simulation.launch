@@ -24,8 +24,7 @@
     <arg name="use_sim_time" value="$(arg use_sim_time)"/>
     <arg name="headless" value="$(arg headless)"/>
   </include>
-  
-  False
+
   <!-- Load URDF to parameter server -->
   <param name="robot_description" command="$(find xacro)/xacro '$(arg model)'" />
 
@@ -46,6 +45,6 @@
   <!-- Load controllers (if you want basic control) -->
   <include file="$(find robot_control)/launch/robot_control.launch"/>
 
-  <!-- Start commander pub_command.py node -->
-<node pkg="commander" type="lyapunov.py" name="ddqn_trainer" output="screen"/>
+  <!-- Start the hybrid (energy swing-up + Lyapunov switch) controller -->
+  <node pkg="commander" type="lyapunov.py" name="lyapunov_controller" output="screen"/>
 </launch>

@@ -1,165 +1,102 @@
-# Hybrid CartPole Controller (ROS)
+# Hybrid Cart-Pole Controller (ROS + Gazebo)
 
-Hybrid control system for stabilizing and controlling the CartPole (Inverted Pendulum) problem using **Robot Operating System (ROS)**.
+[![ROS](https://img.shields.io/badge/ROS-Noetic-22314E?logo=ros&logoColor=white)](http://wiki.ros.org/noetic)
+[![Gazebo](https://img.shields.io/badge/Gazebo-9-orange?logo=gazebo&logoColor=white)](http://gazebosim.org/)
+[![Python](https://img.shields.io/badge/Python-3.8-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 
----
+A cart-pole (inverted pendulum) in **ROS Noetic + Gazebo**, swung up from hanging straight down and stabilized upright by a single **hybrid controller**: energy-based swing-up when the pole is far from vertical, switching to a linear state-feedback law once it's close enough to balance directly.
 
-## 📌 Overview
-
-This project implements a **hybrid controller** for the CartPole system.  
-The CartPole is a classical control problem where the goal is to balance a pole upright on a moving cart by applying horizontal forces.
-
-The controller architecture combines control strategies to improve stability, robustness, and performance.
-
-The repository includes:
-
-- ROS package implementation
-- Controller source code
-- Launch files
-- Performance plots
-- Demonstration video
+This is the piece a pure LQR controller can't do on its own — LQR is only valid near the upright equilibrium, so getting the pole from hanging (`θ ≈ π`) up to vertical (`θ ≈ 0`) needs a nonlinear strategy first.
 
 ---
 
-## 🧠 System Description
+## How It Works
 
-The CartPole system consists of:
+The controller (`lyapunov.py`) runs one control law that branches on the pole angle:
 
-- A cart that moves horizontally
-- A pole attached to the cart via a joint
-- The objective: keep the pole balanced upright (θ = 0)
+**Far from upright (`|θ| ≥ 0.11 rad`) — energy shaping:**
 
-This project focuses on:
+Computes the pole's mechanical energy relative to the upright equilibrium,
+```
+E = ½(I + ¼m₂l²)θ̇² + ½m₂gl(cos θ − 1)
+```
+and applies an effort proportional to `-k·θ̇·E`, pumping energy into the pendulum on each swing until it has enough energy to reach vertical. Near `θ ≈ ±π/2` (where the swing-up law is momentarily singular), a small fixed push (`2·sign(θ)`) is applied instead to carry the pole through that point.
 
-- Stabilization control
-- State feedback control
-- Hybrid control logic
-- Simulation and visualization inside ROS
+**Near upright (`|θ| < 0.11 rad`) — linear state feedback:**
 
----
+Switches to a fixed linear feedback law (the same style of gain used by a standalone LQR controller):
+```
+effort = 55.8868·θ + 27.818·θ̇ + 0.0316·x + 0.5631·ẋ
+```
+which holds the pole balanced once it's close enough to vertical for the linear approximation to be valid.
 
-## 📁 Repository Structure
+`pub_command.py` is included alongside it as a standalone pure-LQR controller (no swing-up) — the same linear law without the energy-shaping stage, useful for comparing against the hybrid approach or for scenarios that already start upright.
+
+## Results
+
+Starting from the pole hanging straight down (`θ ≈ π`), the plots below show the swing-up and catch:
+
+<table>
+<tr>
+<td align="center"><b>Pole Angle</b><br><img src="plots/pole_pos.png" width="300"></td>
+<td align="center"><b>Pole Angular Velocity</b><br><img src="plots/pole_vel.png" width="300"></td>
+</tr>
+<tr>
+<td align="center"><b>Cart Position</b><br><img src="plots/cart_pos.png" width="300"></td>
+<td align="center"><b>Cart Velocity</b><br><img src="plots/cart_vel.png" width="300"></td>
+</tr>
+<tr>
+<td align="center" colspan="2"><b>Control Effort</b><br><img src="plots/effort.png" width="300"></td>
+</tr>
+</table>
+
+The pole angle plot shows the signature of this controller: a growing oscillation as energy is pumped in (the swing-up phase), then a sharp catch and settle once the switch threshold is crossed and the linear law takes over. `video.mp4` shows the same run in Gazebo.
+
+## Repository Structure
+
 ```
 hybrid-cartpole-controller-ros/
-│
 ├── src/
-│   └── cart_pole/          # ROS package
-│       ├── launch/         # Launch files
-│       ├── src/            # Source code
-│       ├── include/        # Header files (if C++)
-│       └── package.xml
-│
-├── plots/                  # Performance graphs and results
-├── video.mp4               # Demonstration video
-├── README.md
-└── CMakeLists.txt
+│   └── cart_pole/src/                # catkin workspace packages
+│       ├── robot_description/        # URDF/xacro model, DAE & STL meshes
+│       ├── robot_control/            # ros_control controller definitions
+│       ├── robot_launch/             # Gazebo world + top-level launch file
+│       └── commander/
+│           ├── scripts/
+│           │   ├── lyapunov.py       # the hybrid controller (swing-up + switch)
+│           │   ├── pub_command.py    # standalone LQR controller, for comparison
+│           │   └── test              # leftover duplicate script, not part of the pipeline
+│           └── launch/commander.launch
+├── plots/                            # state/effort plots for the swing-up run
+├── video.mp4                         # Gazebo recording of the swing-up
+└── README.md
 ```
 
----
+## Getting Started
 
-## ⚙️ Requirements
+### Prerequisites
+- ROS Noetic
+- Gazebo 9+ (bundled with `gazebo_ros`)
+- Python 3.8 with `numpy`
 
-- ROS (Noetic recommended for ROS1)
-- Catkin workspace
-- C++ or Python (depending on implementation)
-- Standard ROS dependencies
+### Build and run
 
----
-
-## 🔧 Installation & Build
-
-### 1️⃣ Create Workspace (if not already created)
-```bash
-mkdir -p ~/catkin_ws/src
-cd ~/catkin_ws/src
-```
-
-### 2️⃣ Clone Repository
 ```bash
 git clone https://github.com/haidar996/hybrid-cartpole-controller-ros.git
-```
-
-### 3️⃣ Build Workspace
-```bash
-cd ~/catkin_ws
+cd hybrid-cartpole-controller-ros
 catkin_make
-```
-
-### 4️⃣ Source Setup File
-```bash
 source devel/setup.bash
+roslaunch robot_launch launch_simulation.launch
 ```
 
----
+This spawns the cart-pole in Gazebo and starts the hybrid controller (`lyapunov.py`) by default. To run the standalone LQR controller instead:
 
-## ▶️ Running the Project
-
-Use the provided launch files:
 ```bash
-roslaunch cart_pole <launch_file_name>.launch
+rosrun commander pub_command.py
 ```
 
-Replace `<launch_file_name>` with the actual file inside the `launch/` folder.
+`roslaunch commander commander.launch` is a second, standalone way to bring up the hybrid controller without also launching the Gazebo world — useful if you already have a simulation running.
 
----
+## Author
 
-## 📊 Results
-
-The repository includes:
-
-- Performance plots inside the `plots/` folder
-- System response graphs
-- Control behavior visualization
-- Demonstration video (`video.mp4`)
-
-These results show:
-
-- Pole angle stabilization
-- System response over time
-- Controller effectiveness
-
----
-
-## 🎯 Project Goals
-
-- Stabilize the inverted pendulum
-- Reduce oscillations
-- Improve robustness
-- Demonstrate hybrid control in ROS
-- Provide a clean and reusable ROS implementation
-
----
-
-## 🚀 Future Improvements
-
-Possible extensions:
-
-- Add reinforcement learning controller
-- Compare with LQR or PID
-- Add Gazebo simulation integration
-- Improve tuning and performance analysis
-- Add real-robot implementation
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome. To contribute:
-
-1. Fork the repository
-2. Create a new branch
-3. Make changes
-4. Submit a Pull Request
-
----
-
-## 📜 License
-
-Add your preferred license (MIT, GPL, etc.) in a `LICENSE` file.
-
----
-
-## 👨‍💻 Author
-
-Developed by **Haidar Saad**  
-GitHub: [https://github.com/haidar996](https://github.com/haidar996)
+**Haidar Saad**
